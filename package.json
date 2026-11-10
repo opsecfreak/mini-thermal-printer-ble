@@ -1,0 +1,13 @@
+{
+  "name": "mini-thermal-printer-ble",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Browser app for the MX10 BLE mini thermal printer (Fun Print). Text and receipts over Web Bluetooth.",
+  "type": "module",
+  "scripts": {
+    "start": "node serve.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

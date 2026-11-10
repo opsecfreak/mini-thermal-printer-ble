@@ -1,0 +1,7 @@
+# Session logs written by serve.mjs (may contain device ids)
+logs/
+node_modules/
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
