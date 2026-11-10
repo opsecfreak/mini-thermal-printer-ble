@@ -1,0 +1,831 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BLE Printer Probe</title>
+<style>
+:root{--bg:#f3f4f6;--panel:#fff;--fg:#1b1d21;--muted:#646a73;--line:#d9dce1;--accent:#0b63ce;--accent-fg:#fff;--ok:#1a7f37;--warn:#a85400;--err:#c62828;--tx:#0b63ce;--rx:#1a7f37;--mono:ui-monospace,Consolas,"Cascadia Mono",monospace}
+@media (prefers-color-scheme:dark){:root{--bg:#131518;--panel:#1d2024;--fg:#e6e8eb;--muted:#9aa0a6;--line:#33373d;--accent:#4d9bff;--accent-fg:#0b0d10;--ok:#4cc26a;--warn:#f0a040;--err:#ff6b6b;--tx:#7db7ff;--rx:#62d382}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,Segoe UI,sans-serif}
+header{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:2}
+header h1{font-size:16px;margin:0 12px 0 0}
+.pill{padding:2px 10px;border-radius:999px;border:1px solid var(--line);font-size:12px;color:var(--muted);white-space:nowrap}
+.pill.ok{color:var(--ok);border-color:var(--ok)}.pill.warn{color:var(--warn);border-color:var(--warn)}.pill.err{color:var(--err);border-color:var(--err)}
+main{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:12px;padding:12px 16px}
+section{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px;min-width:0}
+section h2{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:0 0 10px}
+.wide{grid-column:1/-1}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0}
+label{display:inline-flex;gap:6px;align-items:center;color:var(--muted)}
+input,select,textarea,button{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:4px 8px}
+input[type=number]{width:90px}
+textarea{width:100%;font-family:var(--mono);resize:vertical}
+button{cursor:pointer;padding:6px 12px}
+button.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+button.danger{color:var(--err);border-color:var(--err)}
+button:disabled{opacity:.45;cursor:not-allowed}
+pre{font-family:var(--mono);font-size:12px;margin:0;white-space:pre-wrap;word-break:break-all}
+#gatt{max-height:340px;overflow:auto;background:var(--bg);padding:8px;border-radius:6px}
+#log{height:420px;overflow:auto;background:var(--bg);padding:8px;border-radius:6px;font-family:var(--mono);font-size:12px}
+#log div{white-space:pre-wrap;word-break:break-all}
+.TX{color:var(--tx)}.RX{color:var(--rx)}.ERR{color:var(--err);font-weight:600}.WARN{color:var(--warn)}.INFO{color:var(--fg)}
+progress{width:100%;height:14px}
+.preview-wrap{overflow:auto;max-height:520px;background:#888;padding:8px;border-radius:6px}
+#preview{image-rendering:pixelated;background:#fff;display:block}
+.hint{color:var(--muted);font-size:12px;margin:4px 0}
+table{border-collapse:collapse;width:100%;font-size:12px}td,th{border-bottom:1px solid var(--line);padding:4px;text-align:left;vertical-align:top}
+td input{width:100%}
+</style>
+</head>
+<body>
+<header>
+  <h1>BLE Printer Probe</h1>
+  <span class="pill" id="pConn">disconnected</span>
+  <span class="pill" id="pState">state: ?</span>
+  <span class="pill" id="pFlow">flow: ok</span>
+  <span class="pill" id="pStatusByte">status byte3: ?</span>
+  <span class="pill" id="pTemp">d3: ?</span>
+  <span class="pill" id="pSave">autosave: pending</span>
+</header>
+<main>
+
+<section>
+  <h2>1. Connect</h2>
+  <div class="row">
+    <button class="primary" id="btnConnect">Connect</button>
+    <button id="btnDisconnect" disabled>Disconnect</button>
+  </div>
+  <div class="row">
+    <label><input type="checkbox" id="optAll"> Show all nearby BLE devices</label>
+    <label><input type="checkbox" id="optCompat"> Compat mode (short service list)</label>
+  </div>
+  <div class="row"><label>Write characteristic <select id="selTx" disabled></select></label></div>
+  <pre id="devInfo">Not connected.</pre>
+  <p class="hint">Chrome shows a pairing chooser. Pick <b>MX10</b>. The probe lists every service it can reach and listens on every notify characteristic.</p>
+</section>
+
+<section>
+  <h2>2. Print settings</h2>
+  <div class="row">
+    <label>Speed <input type="number" id="sSpeed" min="1" max="255" value="32"></label>
+    <label>Energy <input type="number" id="sEnergy" min="0" max="65535" value="24000"></label>
+    <label>Energy bytes <select id="sEnergyBytes"><option value="4">4 (SDK/log)</option><option value="2">2 (NaitLee)</option></select></label>
+  </div>
+  <div class="row">
+    <label>Mode (be) <select id="sMode"><option value="1">01 text</option><option value="0">00 image</option></select></label>
+    <label>Threshold <input type="number" id="sThreshold" min="1" max="254" value="140"></label>
+    <label>Bit order <select id="sBitOrder"><option value="lsb">LSB first</option><option value="msb">MSB first</option></select></label>
+  </div>
+  <div class="row">
+    <label>Feed after print <input type="number" id="sFeedAfter" min="0" max="2000" value="50"></label>
+    <label>Feed speed <input type="number" id="sFeedSpeed" min="0" max="255" value="8" title="0 = keep print speed"></label>
+  </div>
+  <div class="row">
+    <label>Blank rows <select id="sBlank"><option value="send">send as rows</option><option value="feed">send as feed</option><option value="skip">skip (old SDK)</option></select></label>
+    <label><input type="checkbox" id="sLattice"> Lattice start/end (a6)</label>
+  </div>
+  <details>
+    <summary>Advanced transport</summary>
+    <div class="row">
+      <label>Delay per row ms <input type="number" id="sDelay" min="0" max="500" value="5"></label>
+      <label>Write method <select id="sWrite"><option value="auto">auto</option><option value="nr">without response</option><option value="wr">with response</option></select></label>
+    </div>
+    <div class="row">
+      <label>Chunk bytes <input type="number" id="sChunk" min="0" max="512" value="0" title="0 = whole packet per write"></label>
+      <label>Resume timeout ms <input type="number" id="sResume" min="500" max="120000" value="10000"></label>
+      <label>Cancel feed <input type="number" id="sCancelFeed" min="0" max="500" value="50"></label>
+    </div>
+  </details>
+</section>
+
+<section>
+  <h2>3. Test prints</h2>
+  <div class="row">
+    <button data-print="line">A. One text line</button>
+    <button data-print="calib">B. Calibration</button>
+    <button data-print="receipt">C. Sample receipt</button>
+  </div>
+  <div class="row">
+    <button data-print="long">D. Long receipt</button>
+    <label>lines <input type="number" id="longLines" min="10" max="400" value="60"></label>
+    <button data-print="custom">E. Custom text</button>
+  </div>
+  <textarea id="customText" rows="5">Custom text
+This line is long enough that it has to wrap onto the next line on 57mm paper.
+
+Blank line above should stay.</textarea>
+  <div class="row">
+    <label>Font <select id="cFont"><option>sans-serif</option><option>monospace</option><option>serif</option><option>Arial</option><option>Consolas</option><option>Segoe UI</option></select></label>
+    <label>Size <input type="number" id="cSize" min="8" max="120" value="24"></label>
+    <label><input type="checkbox" id="cBold"> Bold</label>
+    <label>Align <select id="cAlign"><option value="left">left</option><option value="center">center</option><option value="right">right</option></select></label>
+  </div>
+  <div class="row">
+    <button class="danger" id="btnCancel" disabled>Cancel print</button>
+    <span id="progText" class="hint">idle</span>
+  </div>
+  <progress id="prog" value="0" max="1"></progress>
+</section>
+
+<section>
+  <h2>4. Commands</h2>
+  <div class="row">
+    <button data-cmd="status">Status (a3)</button>
+    <button data-cmd="info">Device info (a8)</button>
+    <label><input type="checkbox" id="optPoll"> Poll status every 3 s when idle</label>
+  </div>
+  <div class="row">
+    <label>Lines <input type="number" id="nLines" min="1" max="2000" value="50"></label>
+    <button data-cmd="feed">Feed (a1)</button>
+    <button data-cmd="retract">Retract (a0)</button>
+  </div>
+  <div class="row">
+    <button data-cmd="speed">Send speed</button>
+    <button data-cmd="energy">Send energy</button>
+    <button data-cmd="mode">Send mode</button>
+  </div>
+  <div class="row">
+    <label>cmd <input id="rawCmd" value="a3" style="width:50px"></label>
+    <label>payload <input id="rawPayload" value="01" style="width:180px"></label>
+    <button data-cmd="packet">Send packet</button>
+  </div>
+  <div class="row">
+    <label>raw bytes <input id="rawBytes" placeholder="51 78 ..." style="width:260px"></label>
+    <button data-cmd="raw">Send raw</button>
+  </div>
+</section>
+
+<section>
+  <h2>Preview (exact 1-bit output)</h2>
+  <div class="row">
+    <label>Zoom <select id="zoom"><option value="1">1x</option><option value="2" selected>2x</option><option value="3">3x</option></select></label>
+    <span id="previewInfo" class="hint">nothing rendered yet</span>
+  </div>
+  <div class="preview-wrap"><canvas id="preview" width="384" height="1"></canvas></div>
+</section>
+
+<section>
+  <h2>Results and notes</h2>
+  <p class="hint">After each test print, type what came out (looks good, faint, black, cut off, garbled...). It's saved with the log.</p>
+  <table><thead><tr><th>#</th><th>Job</th><th>Outcome</th><th>What printed?</th></tr></thead><tbody id="jobs"></tbody></table>
+  <p class="hint">General notes:</p>
+  <textarea id="notes" rows="3" placeholder="Anything else you noticed"></textarea>
+</section>
+
+<section class="wide">
+  <h2>Log</h2>
+  <div class="row">
+    <button id="btnSave">Save log to share now</button>
+    <button id="btnDownload">Download log</button>
+    <button id="btnCopy">Copy log as text</button>
+    <button id="btnClearView">Clear view</button>
+    <label><input type="checkbox" id="optShowRows"> Show every row packet (slow)</label>
+    <span id="saveFile" class="hint"></span>
+  </div>
+  <div id="log"></div>
+</section>
+</main>
+
+<script type="module">
+// ---------- helpers ----------
+const $ = s => document.querySelector(s);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const hex = u8 => Array.from(u8, b => b.toString(16).padStart(2, '0')).join(' ');
+const ascii = u8 => Array.from(u8, b => (b >= 32 && b < 127 ? String.fromCharCode(b) : '.')).join('');
+const dvBytes = dv => new Uint8Array(dv.buffer, dv.byteOffset, dv.byteLength).slice();
+const short = uuid => { const m = /^0000([0-9a-f]{4})-0000-1000-8000-00805f9b34fb$/i.exec(uuid); return m ? m[1] : uuid; };
+const num = (id, lo, hi) => { const v = Math.round(Number($(id).value)); return Math.min(hi, Math.max(lo, Number.isFinite(v) ? v : lo)); };
+const T0 = performance.now();
+
+// ---------- session / log ----------
+const session = {
+  tool: 'ble-printer-probe', version: 1,
+  id: 'probe-' + new Date().toISOString().replace(/[:.]/g, '-').replace('Z', ''),
+  started: new Date().toISOString(), env: {}, device: null, gatt: [], selection: {},
+  notes: '', jobs: [], log: [],
+};
+let dirty = true;
+
+function log(dir, msg, extra = {}) {
+  const { quiet, ...rest } = extra;
+  const e = { t: new Date().toISOString(), ms: Math.round(performance.now() - T0), dir, msg, ...rest };
+  session.log.push(e);
+  dirty = true;
+  if (!quiet || $('#optShowRows').checked) renderLogLine(e);
+  return e;
+}
+function fmtLine(e) {
+  const s = (e.ms / 1000).toFixed(3).padStart(8);
+  return `+${s}s ${e.dir.padEnd(4)}${e.char ? ' [' + e.char + ']' : ''} ${e.msg}${e.hex ? '  | ' + e.hex : ''}`;
+}
+function renderLogLine(e) {
+  const box = $('#log');
+  const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 30;
+  const d = document.createElement('div');
+  d.className = e.dir;
+  d.textContent = fmtLine(e);
+  box.appendChild(d);
+  while (box.childNodes.length > 3000) box.removeChild(box.firstChild);
+  if (atBottom) box.scrollTop = box.scrollHeight;
+}
+window.addEventListener('error', ev => log('ERR', 'Page error: ' + ev.message));
+window.addEventListener('unhandledrejection', ev => log('ERR', 'Unhandled: ' + (ev.reason?.message || ev.reason)));
+
+// ---------- protocol ----------
+const CMD = { RETRACT: 0xa0, FEED: 0xa1, ROW: 0xa2, STATUS: 0xa3, DPI: 0xa4, LATTICE: 0xa6, INFO: 0xa8, UPDATE: 0xa9, FLOW: 0xae, ENERGY: 0xaf, SPEED: 0xbd, MODE: 0xbe, TEMP: 0xd3 };
+const CMD_NAME = { 0xa0: 'retract', 0xa1: 'feed', 0xa2: 'row', 0xa3: 'status', 0xa4: 'dpi', 0xa6: 'lattice', 0xa8: 'device-info', 0xa9: 'update-device', 0xae: 'flow', 0xaf: 'energy', 0xbd: 'speed', 0xbe: 'mode', 0xbf: 'row-rle', 0xd3: 'temp/progress' };
+const LATTICE_START = [0xaa, 0x55, 0x17, 0x38, 0x44, 0x5f, 0x5f, 0x5f, 0x44, 0x38, 0x2c];
+const LATTICE_END = [0xaa, 0x55, 0x17, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x17];
+
+const CRC = new Uint8Array(256);
+for (let i = 0; i < 256; i++) { let c = i; for (let j = 0; j < 8; j++) c = c & 0x80 ? ((c << 1) ^ 0x07) & 0xff : (c << 1) & 0xff; CRC[i] = c; }
+const crc8 = data => { let c = 0; for (const b of data) c = CRC[c ^ b]; return c; };
+const u16 = n => [n & 0xff, (n >> 8) & 0xff];
+const u32 = n => [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff];
+function packet(cmd, payload = []) {
+  const p = Uint8Array.from(payload);
+  return Uint8Array.from([0x51, 0x78, cmd, 0x00, p.length & 0xff, (p.length >> 8) & 0xff, ...p, crc8(p), 0xff]);
+}
+function describeTx(b) {
+  if (b.length < 8 || b[0] !== 0x51 || b[1] !== 0x78) return 'raw ' + b.length + ' bytes';
+  const len = b[4] | (b[5] << 8), data = b.slice(6, 6 + len), name = CMD_NAME[b[2]] || 'cmd 0x' + b[2].toString(16);
+  if (b[2] === CMD.FEED || b[2] === CMD.RETRACT) return `${name} ${data[0] | (data[1] << 8)} lines`;
+  if (b[2] === CMD.ENERGY) return `${name} ${len === 4 ? (data[0] | data[1] << 8 | data[2] << 16 | data[3] << 24) >>> 0 : data[0] | data[1] << 8} (${len} bytes)`;
+  if (b[2] === CMD.SPEED || b[2] === CMD.MODE) return `${name} ${data[0]}`;
+  return `${name} (${len} bytes)`;
+}
+
+// ---------- printer state ----------
+const flow = { paused: false, since: 0, pauses: 0, pausedMs: 0 };
+const ui = { conn: 'disconnected', state: '?', temp: '?' };
+function pill(id, text, cls = '') { const p = $(id); p.textContent = text; p.className = 'pill ' + cls; }
+function setPaused(p) {
+  if (p && !flow.paused) { flow.paused = true; flow.since = performance.now(); flow.pauses++; }
+  else if (!p && flow.paused) { flow.paused = false; flow.pausedMs += performance.now() - flow.since; }
+  pill('#pFlow', flow.paused ? 'flow: BUFFER FULL (paused)' : 'flow: ok', flow.paused ? 'warn' : 'ok');
+}
+
+const rxBuf = new Map();
+function onNotify(key, label, ev) {
+  const bytes = dvBytes(ev.target.value);
+  let buf = rxBuf.get(key) || new Uint8Array(0);
+  const merged = new Uint8Array(buf.length + bytes.length); merged.set(buf); merged.set(bytes, buf.length); buf = merged;
+  const notes = [];
+  while (buf.length) {
+    let start = -1;
+    for (let i = 0; i + 1 < buf.length; i++) if (buf[i] === 0x51 && buf[i + 1] === 0x78) { start = i; break; }
+    if (start < 0) { notes.push('non-packet bytes: ' + hex(buf)); buf = new Uint8Array(0); break; }
+    if (start > 0) { notes.push('skipped: ' + hex(buf.slice(0, start))); buf = buf.slice(start); }
+    if (buf.length < 6) break;
+    const len = buf[4] | (buf[5] << 8), total = 8 + len;
+    if (buf.length < total) break;
+    const pk = buf.slice(0, total); buf = buf.slice(total);
+    notes.push(handlePacket(pk));
+  }
+  rxBuf.set(key, buf);
+  log('RX', notes.join(' ; ') || '(partial packet, waiting)', { char: label, hex: hex(bytes) });
+}
+function handlePacket(pk) {
+  const cmd = pk[2], len = pk[4] | (pk[5] << 8), data = pk.slice(6, 6 + len);
+  const crcOk = pk[6 + len] === crc8(data) && pk[7 + len] === 0xff;
+  const name = CMD_NAME[cmd] || 'cmd 0x' + cmd.toString(16);
+  let d = `${name} type=${pk[3]} data=[${hex(data)}]${crcOk ? '' : ' CRC/END MISMATCH'}`;
+  if (cmd === CMD.STATUS) {
+    const f = data[0] ?? 0;
+    const st = { outOfPaper: !!(f & 1), coverOpen: !!(f & 2), overheat: !!(f & 4), lowPower: !!(f & 8), paused: !!(f & 0x10), busy: !!(f & 0x80) };
+    const on = Object.keys(st).filter(k => st[k]);
+    d += ' => ' + (on.length ? on.join(',') : 'idle/ok') + (data.length > 1 ? ` flags2=0x${data[1].toString(16)}` : '') + (data.length > 2 ? ` byte3=${data[2]}` : '');
+    pill('#pState', 'state: ' + (on.length ? on.join(', ') : 'idle'), on.length ? (st.outOfPaper || st.coverOpen || st.overheat ? 'err' : 'warn') : 'ok');
+    if (data.length > 2) pill('#pStatusByte', `status byte3: ${data[2]} (0x${data[2].toString(16)})`);
+  } else if (cmd === CMD.FLOW) {
+    const v = data[0] ?? 0;
+    if (v === 0x10) { setPaused(true); d += ' => BUFFER FULL, pause'; }
+    else if (v === 0x00) { setPaused(false); d += ' => resume'; }
+    else d += ' => unknown flow value';
+  } else if (cmd === CMD.TEMP) {
+    d += ` => value ${data[0]}`;
+    pill('#pTemp', `d3: ${data[0]} @ ${new Date().toLocaleTimeString()}`);
+  } else if (cmd === CMD.INFO) {
+    d += ` ascii="${ascii(data)}"`;
+  }
+  return d;
+}
+
+// ---------- BLE connection ----------
+let device = null, server = null, tx = null;
+const chars = new Map(); // key "svc/char" -> characteristic
+
+function optionalServiceList(compat) {
+  const list = [0xae30, 0xaf30, 0xae00, 0xae3a, 0xff00, 0xffe0, 0xfff0, 0x18f0, 0x180a, 0x180f, 0xfee7];
+  if (!compat) {
+    for (let u = 0xae00; u <= 0xaeff; u++) list.push(u);
+    for (let u = 0xaf00; u <= 0xafff; u++) list.push(u);
+  }
+  return [...new Set(list)];
+}
+
+async function connect() {
+  if (!navigator.bluetooth) { log('ERR', 'navigator.bluetooth missing. Use Chrome on http://127.0.0.1 or https.'); return; }
+  const compat = $('#optCompat').checked;
+  const opts = { optionalServices: optionalServiceList(compat) };
+  if ($('#optAll').checked) opts.acceptAllDevices = true;
+  else opts.filters = [{ services: [0xaf30] }, { services: [0xae30] }, { namePrefix: 'MX' }, { namePrefix: 'GB' }, { namePrefix: 'GT' }, { namePrefix: 'YT' }];
+  log('INFO', `requestDevice: ${opts.acceptAllDevices ? 'all devices' : 'filters AF30/AE30/MX*/GB*/GT*/YT*'}, ${opts.optionalServices.length} optional services${compat ? ' (compat)' : ''}`);
+  try {
+    device = await navigator.bluetooth.requestDevice(opts);
+  } catch (e) {
+    log('ERR', `requestDevice failed: ${e.name}: ${e.message}`);
+    if (e.name === 'TypeError' && !compat) { $('#optCompat').checked = true; log('WARN', 'Switched to compat mode. Click Connect again.'); }
+    return;
+  }
+  session.device = { name: device.name, id: device.id };
+  log('INFO', `Selected device: name="${device.name}" id=${device.id}`);
+  device.addEventListener('gattserverdisconnected', () => {
+    log('WARN', 'GATT server disconnected');
+    if (job) job.cancel = true, job.disconnected = true;
+    tx = null; server = null; setConnUi(false);
+  });
+
+  await watchAdverts(device);
+
+  try {
+    pill('#pConn', 'connecting...', 'warn');
+    const t = performance.now();
+    server = await device.gatt.connect();
+    log('INFO', `GATT connected in ${Math.round(performance.now() - t)} ms`);
+  } catch (e) { log('ERR', `gatt.connect failed: ${e.name}: ${e.message}`); setConnUi(false); return; }
+
+  session.gatt = await enumerate(server);
+  printGatt();
+  await startAllNotifications();
+  chooseTx();
+  setConnUi(true);
+  try { await send(packet(CMD.STATUS, [0x01])); } catch {}
+  save();
+}
+
+async function watchAdverts(dev) {
+  if (typeof dev.watchAdvertisements !== 'function') { log('INFO', 'watchAdvertisements not available (needs experimental flag); skipping advert capture'); return; }
+  try {
+    const ac = new AbortController();
+    let n = 0;
+    const done = new Promise(res => {
+      dev.addEventListener('advertisementreceived', ev => {
+        if (n++ >= 3) return res();
+        const md = {}; ev.manufacturerData?.forEach((v, k) => md['0x' + k.toString(16)] = hex(dvBytes(v)));
+        const sd = {}; ev.serviceData?.forEach((v, k) => sd[short(k)] = hex(dvBytes(v)));
+        log('INFO', 'Advertisement', { adv: { name: ev.name, rssi: ev.rssi, txPower: ev.txPower, appearance: ev.appearance, uuids: (ev.uuids || []).map(short), manufacturerData: md, serviceData: sd } });
+        renderLogLine({ ms: Math.round(performance.now() - T0), dir: 'INFO', msg: `  adv rssi=${ev.rssi} uuids=${(ev.uuids || []).map(short).join(',')} mfr=${JSON.stringify(md)}` });
+      });
+      setTimeout(res, 3000);
+    });
+    await dev.watchAdvertisements({ signal: ac.signal });
+    await done; ac.abort();
+  } catch (e) { log('INFO', `Advert capture skipped: ${e.name}: ${e.message}`); }
+}
+
+async function enumerate(srv) {
+  chars.clear();
+  const out = [];
+  let services = [];
+  try { services = await srv.getPrimaryServices(); } catch (e) { log('ERR', `getPrimaryServices: ${e.name}: ${e.message}`); }
+  log('INFO', `Found ${services.length} accessible service(s): ${services.map(s => short(s.uuid)).join(', ')}`);
+  for (const s of services) {
+    const sv = { uuid: s.uuid, short: short(s.uuid), chars: [] };
+    let cs = [];
+    try { cs = await s.getCharacteristics(); } catch (e) { sv.error = `${e.name}: ${e.message}`; }
+    for (const c of cs) {
+      const p = c.properties;
+      const props = ['broadcast', 'read', 'writeWithoutResponse', 'write', 'notify', 'indicate', 'authenticatedSignedWrites', 'reliableWrite', 'writableAuxiliaries'].filter(k => p[k]);
+      const cv = { uuid: c.uuid, short: short(c.uuid), props, descriptors: [] };
+      try {
+        for (const d of await c.getDescriptors()) {
+          const dv = { uuid: d.uuid, short: short(d.uuid) };
+          try { const v = dvBytes(await d.readValue()); dv.hex = hex(v); dv.text = ascii(v); } catch (e) { dv.readError = e.name; }
+          cv.descriptors.push(dv);
+        }
+      } catch (e) { cv.descriptorsError = e.name; }
+      if (p.read) { try { const v = dvBytes(await c.readValue()); cv.value = hex(v); cv.text = ascii(v); } catch (e) { cv.readError = `${e.name}: ${e.message}`; } }
+      chars.set(`${sv.short}/${cv.short}`, c);
+      sv.chars.push(cv);
+    }
+    out.push(sv);
+  }
+  return out;
+}
+
+function printGatt() {
+  const lines = [];
+  for (const s of session.gatt) {
+    lines.push(`service ${s.short}  ${s.uuid}${s.error ? '  ERROR ' + s.error : ''}`);
+    for (const c of s.chars) {
+      lines.push(`  char ${c.short}  [${c.props.join(', ')}]${c.value ? '  value=' + c.value + ' "' + c.text + '"' : ''}${c.readError ? '  readError=' + c.readError : ''}`);
+      for (const d of c.descriptors) lines.push(`    desc ${d.short}${d.hex ? ' = ' + d.hex : ''}${d.readError ? ' (' + d.readError + ')' : ''}`);
+    }
+  }
+  const text = lines.join('\n') || '(no services visible)';
+  log('INFO', 'GATT tree:\n' + text);
+  $('#devInfo').textContent = `Device: ${device?.name} (${device?.id})\n\n${text}`;
+}
+
+async function startAllNotifications() {
+  for (const [key, c] of chars) {
+    if (!c.properties.notify && !c.properties.indicate) continue;
+    try {
+      c.addEventListener('characteristicvaluechanged', ev => onNotify(key, key, ev));
+      await c.startNotifications();
+      log('INFO', `Notifications on ${key}`);
+    } catch (e) { log('WARN', `startNotifications ${key} failed: ${e.name}: ${e.message}`); }
+  }
+}
+
+function chooseTx() {
+  const sel = $('#selTx');
+  sel.innerHTML = '';
+  const writable = [...chars].filter(([, c]) => c.properties.write || c.properties.writeWithoutResponse);
+  for (const [key, c] of writable) {
+    const o = document.createElement('option');
+    o.value = key;
+    o.textContent = `${key} (${[c.properties.writeWithoutResponse && 'wwr', c.properties.write && 'w'].filter(Boolean).join('+')})`;
+    sel.appendChild(o);
+  }
+  const pick = writable.find(([k]) => k.endsWith('/ae01')) || writable.find(([k]) => k.endsWith('/ae10')) || writable.find(([, c]) => c.properties.writeWithoutResponse) || writable[0];
+  if (!pick) { log('ERR', 'No writable characteristic found'); tx = null; return; }
+  sel.value = pick[0];
+  setTx(pick[0], 'auto');
+}
+function setTx(key, how) {
+  tx = chars.get(key) || null;
+  session.selection = { tx: key, how, props: tx ? Object.fromEntries(['write', 'writeWithoutResponse', 'notify'].map(k => [k, tx.properties[k]])) : null };
+  log('INFO', `Write characteristic: ${key} (${how})`);
+}
+$('#selTx').addEventListener('change', e => setTx(e.target.value, 'manual'));
+
+async function disconnect() {
+  if (job) job.cancel = true;
+  for (const c of chars.values()) { if (c.properties.notify || c.properties.indicate) { try { await c.stopNotifications(); } catch {} } }
+  try { device?.gatt?.disconnect(); } catch {}
+  log('INFO', 'Disconnected by user');
+  tx = null; server = null; setConnUi(false);
+}
+
+function setConnUi(on) {
+  pill('#pConn', on ? `connected: ${device?.name}` : 'disconnected', on ? 'ok' : '');
+  $('#btnConnect').disabled = on;
+  $('#btnDisconnect').disabled = !on;
+  $('#selTx').disabled = !on;
+}
+
+// ---------- single write queue ----------
+let chain = Promise.resolve();
+function send(bytes, opts = {}) {
+  const p = chain.then(() => rawWrite(bytes, opts));
+  chain = p.catch(() => {});
+  return p;
+}
+async function rawWrite(bytes, { quiet = false } = {}) {
+  if (!tx) throw new Error('Not connected');
+  const mode = $('#sWrite').value;
+  const nr = mode === 'nr' || (mode === 'auto' && tx.properties.writeWithoutResponse);
+  const chunk = num('#sChunk', 0, 512);
+  const parts = [];
+  if (chunk > 0) for (let i = 0; i < bytes.length; i += chunk) parts.push(bytes.slice(i, i + chunk)); else parts.push(bytes);
+  const e = log('TX', describeTx(bytes), { hex: hex(bytes), quiet, method: nr ? 'wwr' : 'wr' });
+  const t = performance.now();
+  try {
+    for (const part of parts) {
+      if (nr) await (tx.writeValueWithoutResponse ? tx.writeValueWithoutResponse(part) : tx.writeValue(part));
+      else await tx.writeValueWithResponse(part);
+    }
+  } catch (err) {
+    log('ERR', `Write failed (${nr ? 'without' : 'with'} response): ${err.name}: ${err.message}`, { hex: hex(bytes) });
+    throw err;
+  }
+  e.wms = Math.round((performance.now() - t) * 10) / 10;
+}
+
+// ---------- rendering (text only) ----------
+const W = 384;
+function wrapLine(ctx, text, maxW) {
+  if (text === '') return [''];
+  const out = [];
+  let cur = '';
+  for (const word of text.split(/(\s+)/)) {
+    const next = cur + word;
+    if (ctx.measureText(next).width <= maxW) { cur = next; continue; }
+    if (cur.trim()) out.push(cur.trimEnd());
+    cur = word.trimStart();
+    while (ctx.measureText(cur).width > maxW) { // hard-break a long word
+      let i = cur.length;
+      while (i > 1 && ctx.measureText(cur.slice(0, i)).width > maxW) i--;
+      out.push(cur.slice(0, i)); cur = cur.slice(i);
+    }
+  }
+  out.push(cur.trimEnd());
+  return out;
+}
+// blocks: {t:'text', text, size, bold, align, font} | {t:'lr', left, right, size, bold} | {t:'rule', dash} | {t:'space', h} | {t:'ruler'}
+function renderBlocks(blocks, pad = 4) {
+  const m = document.createElement('canvas').getContext('2d');
+  const ops = [];
+  let y = pad;
+  for (const b of blocks) {
+    const size = b.size || 24, lh = Math.ceil(size * 1.25);
+    const font = `${b.bold ? 'bold ' : ''}${size}px ${b.font || 'sans-serif'}`;
+    m.font = font;
+    if (b.t === 'text') {
+      for (const ln of b.text.split('\n')) for (const w of wrapLine(m, ln, W - 4)) { ops.push({ k: 'text', y, font, text: w, align: b.align || 'left' }); y += lh; }
+    } else if (b.t === 'lr') {
+      ops.push({ k: 'text', y, font, text: b.left, align: 'left' });
+      ops.push({ k: 'text', y, font, text: b.right, align: 'right' });
+      y += lh;
+    } else if (b.t === 'rule') { ops.push({ k: 'rule', y: y + 4, dash: b.dash }); y += 10; }
+    else if (b.t === 'space') { y += b.h || 16; }
+    else if (b.t === 'ruler') { ops.push({ k: 'ruler', y }); y += 44; }
+    else if (b.t === 'border') { ops.push({ k: 'borderStart', y }); }
+  }
+  y += pad;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = Math.max(1, Math.ceil(y));
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height); // white first: no transparent pixels
+  ctx.fillStyle = '#000'; ctx.strokeStyle = '#000'; ctx.textBaseline = 'top';
+  let borderY = null;
+  for (const o of ops) {
+    if (o.k === 'text') {
+      ctx.font = o.font; ctx.textAlign = o.align;
+      ctx.fillText(o.text, o.align === 'left' ? 2 : o.align === 'right' ? W - 2 : W / 2, o.y);
+    } else if (o.k === 'rule') {
+      if (o.dash) for (let x = 0; x < W; x += 12) ctx.fillRect(x, o.y, 7, 2); else ctx.fillRect(0, o.y, W, 2);
+    } else if (o.k === 'ruler') {
+      ctx.font = 'bold 12px monospace'; ctx.textAlign = 'center';
+      for (let x = 0; x < W; x += 8) { const big = x % 48 === 0; ctx.fillRect(x, o.y, 1, big ? 18 : 8); if (x % 96 === 0) ctx.fillText(String(x), Math.min(Math.max(x, 12), W - 14), o.y + 22); }
+      ctx.fillRect(W - 1, o.y, 1, 18);
+    } else if (o.k === 'borderStart') borderY = o.y;
+  }
+  if (borderY !== null) { ctx.fillRect(0, borderY, 2, c.height - borderY); ctx.fillRect(W - 2, borderY, 2, c.height - borderY); }
+  return c;
+}
+
+function canvasToRows(c) {
+  const thr = num('#sThreshold', 1, 254), msb = $('#sBitOrder').value === 'msb';
+  const { data } = c.getContext('2d').getImageData(0, 0, c.width, c.height);
+  const rows = [];
+  for (let y = 0; y < c.height; y++) {
+    const row = new Uint8Array(48);
+    for (let x = 0; x < W; x++) {
+      const i = (y * W + x) * 4, a = data[i + 3] / 255;
+      const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+      const g = 255 - a * (255 - lum); // composite on white
+      if (g < thr) row[x >> 3] |= msb ? 0x80 >> (x & 7) : 1 << (x & 7);
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
+function showPreview(rows) {
+  const pc = $('#preview'), z = Number($('#zoom').value), msb = $('#sBitOrder').value === 'msb';
+  pc.width = W; pc.height = Math.max(1, rows.length);
+  pc.style.width = W * z + 'px'; pc.style.height = rows.length * z + 'px';
+  const ctx = pc.getContext('2d'), img = ctx.createImageData(W, pc.height);
+  rows.forEach((row, y) => { for (let x = 0; x < W; x++) { const on = msb ? row[x >> 3] & (0x80 >> (x & 7)) : row[x >> 3] & (1 << (x & 7)); const v = on ? 0 : 255, i = (y * W + x) * 4; img.data[i] = img.data[i + 1] = img.data[i + 2] = v; img.data[i + 3] = 255; } });
+  ctx.putImageData(img, 0, 0);
+  const black = rows.reduce((n, r) => n + r.reduce((m, b) => m + popcnt(b), 0), 0);
+  $('#previewInfo').textContent = `${rows.length} rows = ${(rows.length / 203).toFixed(2)} in (${(rows.length / 8).toFixed(1)} mm) + feed ${num('#sFeedAfter', 0, 2000)} lines, black ${(100 * black / (rows.length * W)).toFixed(1)}%`;
+  return black / Math.max(1, rows.length * W);
+}
+const popcnt = b => { let n = 0; while (b) { n += b & 1; b >>= 1; } return n; };
+$('#zoom').addEventListener('change', () => lastRows && showPreview(lastRows));
+let lastRows = null;
+
+function buildJob(kind) {
+  const stamp = new Date().toLocaleString();
+  if (kind === 'line') return renderBlocks([{ t: 'text', text: `Probe A: one line ${new Date().toLocaleTimeString()}`, size: 22 }]);
+  if (kind === 'calib') return renderBlocks([
+    { t: 'border' },
+    { t: 'text', text: 'PROBE B: CALIBRATION', size: 26, bold: true, align: 'center' },
+    { t: 'text', text: stamp, size: 18, align: 'center' },
+    { t: 'ruler' },
+    { t: 'lr', left: '<LEFT', right: 'RIGHT>', size: 22, bold: true },
+    { t: 'text', text: 'If this text is readable, bit order is right. If it looks like garbled 8-dot blocks, switch Bit order.', size: 18 },
+    { t: 'rule' },
+    { t: 'text', text: 'Sizes:', size: 16 },
+    { t: 'text', text: 'Size 12 ABCabc123', size: 12 },
+    { t: 'text', text: 'Size 16 ABCabc123', size: 16 },
+    { t: 'text', text: 'Size 24 ABCabc123', size: 24 },
+    { t: 'text', text: 'Size 32 Bold', size: 32, bold: true },
+    { t: 'text', text: 'monospace 0123456789', size: 20, font: 'monospace' },
+    { t: 'space', h: 24 },
+    { t: 'text', text: '^ 24 blank dots above must be kept', size: 14 },
+    { t: 'rule', dash: true },
+    { t: 'text', text: 'END B - tear line is below after feed', size: 16, align: 'center' },
+  ]);
+  if (kind === 'receipt' || kind === 'long') {
+    const items = [['USB-C cable', '9.99'], ['Prop set 5"', '12.50'], ['Battery strap x2', '4.00'], ['Labor - motor swap', '35.00']];
+    if (kind === 'long') { items.length = 0; const n = num('#longLines', 10, 400); for (let i = 1; i <= n; i++) items.push([`Line ${String(i).padStart(3, '0')} test item`, (i * 1.25).toFixed(2)]); }
+    const total = items.reduce((s, [, p]) => s + Number(p), 0);
+    return renderBlocks([
+      { t: 'text', text: 'SHOP NAME', size: 40, bold: true, align: 'center' },
+      { t: 'text', text: kind === 'long' ? 'PROBE D: LONG RECEIPT' : 'PROBE C: SAMPLE RECEIPT', size: 18, align: 'center' },
+      { t: 'text', text: stamp, size: 16, align: 'center' },
+      { t: 'rule', dash: true },
+      ...items.map(([l, r]) => ({ t: 'lr', left: l, right: '$' + r, size: 20 })),
+      { t: 'rule' },
+      { t: 'lr', left: 'TOTAL', right: '$' + total.toFixed(2), size: 26, bold: true },
+      { t: 'space', h: 12 },
+      { t: 'text', text: 'Thank you!', size: 22, align: 'center' },
+      { t: 'text', text: 'Last line - must be above the tear bar', size: 14, align: 'center' },
+    ]);
+  }
+  if (kind === 'custom') return renderBlocks([{ t: 'text', text: $('#customText').value, size: num('#cSize', 8, 120), bold: $('#cBold').checked, align: $('#cAlign').value, font: $('#cFont').value }]);
+  throw new Error('unknown job ' + kind);
+}
+
+// ---------- print job ----------
+let job = null;
+function settings() {
+  return {
+    speed: num('#sSpeed', 1, 255), energy: num('#sEnergy', 0, 65535), energyBytes: Number($('#sEnergyBytes').value), mode: Number($('#sMode').value),
+    threshold: num('#sThreshold', 1, 254), bitOrder: $('#sBitOrder').value, feedAfter: num('#sFeedAfter', 0, 2000), feedSpeed: num('#sFeedSpeed', 0, 255),
+    blank: $('#sBlank').value, lattice: $('#sLattice').checked, delay: num('#sDelay', 0, 500), write: $('#sWrite').value, chunk: num('#sChunk', 0, 512),
+    resumeTimeout: num('#sResume', 500, 120000), cancelFeed: num('#sCancelFeed', 0, 500), tx: session.selection.tx,
+  };
+}
+async function waitResume(j, timeout) {
+  if (!flow.paused) return;
+  const t = performance.now();
+  log('WARN', 'Printer buffer full, pausing writes');
+  while (flow.paused) {
+    if (j.cancel) return;
+    if (performance.now() - t > timeout) throw new Error(`No resume (ae 00) within ${timeout} ms after buffer full`);
+    await sleep(15);
+  }
+  log('INFO', `Resumed after ${Math.round(performance.now() - t)} ms`);
+}
+
+async function printJob(kind) {
+  if (job) return;
+  if (!tx) { log('ERR', 'Connect first'); return; }
+  const canvas = buildJob(kind);
+  const rows = canvasToRows(canvas);
+  lastRows = rows;
+  const blackRatio = showPreview(rows);
+  const s = settings();
+  const rec = { n: session.jobs.length + 1, kind, started: new Date().toISOString(), rows: rows.length, inches: +(rows.length / 203).toFixed(2), blackRatio: +blackRatio.toFixed(4), settings: s, outcome: 'running', userNote: '' };
+  session.jobs.push(rec); renderJobs();
+  job = { cancel: false };
+  const pauses0 = flow.pauses, pausedMs0 = flow.pausedMs, t0 = performance.now();
+  $('#btnCancel').disabled = false;
+  document.querySelectorAll('[data-print]').forEach(b => b.disabled = true);
+  log('INFO', `=== Job #${rec.n} ${kind}: ${rows.length} rows (${rec.inches} in), black ${(blackRatio * 100).toFixed(1)}% ===`, { settings: s });
+  let sent = 0, blankRun = 0;
+  const flushBlank = async () => { if (blankRun > 0) { await send(packet(CMD.FEED, u16(blankRun))); blankRun = 0; } };
+  try {
+    await send(packet(CMD.STATUS, [0x01]));
+    await send(packet(CMD.SPEED, [s.speed]));
+    await send(packet(CMD.ENERGY, s.energyBytes === 2 ? u16(s.energy) : u32(s.energy)));
+    await send(packet(CMD.MODE, [s.mode]));
+    if (s.lattice) await send(packet(CMD.LATTICE, LATTICE_START));
+    for (let i = 0; i < rows.length; i++) {
+      if (job.cancel) break;
+      await waitResume(job, s.resumeTimeout);
+      if (job.cancel) break;
+      const row = rows[i];
+      const blank = row.every(b => b === 0);
+      if (blank && s.blank === 'skip') { sent++; continue; }
+      if (blank && s.blank === 'feed') { blankRun++; sent++; continue; }
+      await flushBlank();
+      await send(packet(CMD.ROW, row), { quiet: i > 2 && i % 100 !== 0 && i !== rows.length - 1 });
+      sent = i + 1;
+      if ((i & 7) === 0) { $('#prog').value = sent / rows.length; $('#progText').textContent = `row ${sent}/${rows.length}`; }
+      if (s.delay) await sleep(s.delay);
+    }
+    if (!job.cancel) {
+      await flushBlank();
+      if (s.lattice) await send(packet(CMD.LATTICE, LATTICE_END));
+      if (s.feedSpeed > 0) await send(packet(CMD.SPEED, [s.feedSpeed]));
+      if (s.feedAfter > 0) await send(packet(CMD.FEED, u16(s.feedAfter)));
+      if (s.feedSpeed > 0) await send(packet(CMD.SPEED, [s.speed]));
+    }
+    rec.outcome = job.cancel ? (job.disconnected ? 'disconnected' : 'cancelled') : 'sent';
+  } catch (e) {
+    rec.outcome = 'error'; rec.error = `${e.name}: ${e.message}`;
+    log('ERR', `Job #${rec.n} failed at row ${sent}: ${e.message}`);
+  }
+  if (job.cancel && !job.disconnected && tx) {
+    try { if (s.lattice) await send(packet(CMD.LATTICE, LATTICE_END)); if (s.cancelFeed) await send(packet(CMD.FEED, u16(s.cancelFeed))); } catch {}
+  }
+  rec.rowsSent = sent;
+  rec.seconds = +((performance.now() - t0) / 1000).toFixed(2);
+  rec.bufferFullPauses = flow.pauses - pauses0;
+  rec.pausedMs = Math.round(flow.pausedMs - pausedMs0);
+  log('INFO', `=== Job #${rec.n} ${rec.outcome}: ${sent}/${rows.length} rows in ${rec.seconds}s, ${rec.bufferFullPauses} buffer-full pause(s), ${rec.pausedMs} ms paused ===`);
+  try { if (tx) await send(packet(CMD.STATUS, [0x01])); } catch {}
+  job = null;
+  $('#btnCancel').disabled = true;
+  document.querySelectorAll('[data-print]').forEach(b => b.disabled = false);
+  $('#prog').value = sent / Math.max(1, rows.length);
+  $('#progText').textContent = `${rec.outcome}: ${sent}/${rows.length} rows`;
+  renderJobs(); save();
+}
+
+function renderJobs() {
+  const tb = $('#jobs'); tb.innerHTML = '';
+  for (const r of session.jobs) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${r.n}</td><td>${r.kind}<br><span class="hint">${r.rows} rows, E${r.settings.energy} S${r.settings.speed}</span></td><td>${r.outcome}${r.error ? '<br><span class="ERR">' + r.error.replace(/</g, '&lt;') + '</span>' : ''}${r.bufferFullPauses ? '<br>' + r.bufferFullPauses + ' pauses' : ''}</td><td><input placeholder="e.g. looks good / faint / black / cut off"></td>`;
+    const inp = tr.querySelector('input'); inp.value = r.userNote;
+    inp.addEventListener('input', () => { r.userNote = inp.value; dirty = true; });
+    tb.appendChild(tr);
+  }
+}
+
+// ---------- commands ----------
+function parseHex(s) {
+  const clean = s.replace(/0x/gi, '').replace(/[^0-9a-f]/gi, '');
+  if (clean.length % 2) throw new Error('odd number of hex digits');
+  return Uint8Array.from(clean.match(/../g) || [], h => parseInt(h, 16));
+}
+async function command(c) {
+  if (!tx) { log('ERR', 'Connect first'); return; }
+  if (job) { log('WARN', 'A print job is running; command refused'); return; }
+  const s = settings(), n = num('#nLines', 1, 2000);
+  try {
+    if (c === 'status') await send(packet(CMD.STATUS, [0x01]));
+    else if (c === 'info') await send(packet(CMD.INFO, [0x00]));
+    else if (c === 'feed') await send(packet(CMD.FEED, u16(n)));
+    else if (c === 'retract') await send(packet(CMD.RETRACT, u16(n)));
+    else if (c === 'speed') await send(packet(CMD.SPEED, [s.speed]));
+    else if (c === 'energy') await send(packet(CMD.ENERGY, s.energyBytes === 2 ? u16(s.energy) : u32(s.energy)));
+    else if (c === 'mode') await send(packet(CMD.MODE, [s.mode]));
+    else if (c === 'packet') { const cmd = parseHex($('#rawCmd').value); if (cmd.length !== 1) throw new Error('cmd must be one byte'); await send(packet(cmd[0], parseHex($('#rawPayload').value))); }
+    else if (c === 'raw') await send(parseHex($('#rawBytes').value));
+  } catch (e) { log('ERR', `${c}: ${e.message}`); }
+}
+setInterval(() => { if ($('#optPoll').checked && tx && !job) send(packet(CMD.STATUS, [0x01]), { quiet: true }).catch(() => {}); }, 3000);
+
+// ---------- save / export ----------
+async function save() {
+  session.notes = $('#notes').value;
+  session.savedAt = new Date().toISOString();
+  dirty = false;
+  try {
+    const r = await fetch('/api/log?session=' + encodeURIComponent(session.id), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(session) });
+    if (!r.ok) throw new Error(r.status + ' ' + await r.text());
+    const j = await r.json();
+    pill('#pSave', 'autosave: ' + new Date().toLocaleTimeString(), 'ok');
+    $('#saveFile').textContent = 'Saved to ' + j.file;
+  } catch (e) {
+    dirty = true;
+    pill('#pSave', 'autosave failed (use Download)', 'err');
+  }
+}
+setInterval(() => { if (dirty) save(); }, 4000);
+$('#notes').addEventListener('input', () => { dirty = true; });
+function asText() {
+  return [`BLE probe session ${session.id}`, `env: ${JSON.stringify(session.env)}`, `device: ${JSON.stringify(session.device)}`, `selection: ${JSON.stringify(session.selection)}`, `notes: ${$('#notes').value}`,
+    `jobs: ${JSON.stringify(session.jobs, null, 1)}`, '', ...session.log.map(fmtLine)].join('\n');
+}
+$('#btnSave').onclick = save;
+$('#btnDownload').onclick = () => {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(session, null, 1)], { type: 'application/json' }));
+  a.download = session.id + '.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+};
+$('#btnCopy').onclick = async () => { try { await navigator.clipboard.writeText(asText()); log('INFO', 'Log copied to clipboard'); } catch (e) { log('ERR', 'Copy failed: ' + e.message); } };
+$('#btnClearView').onclick = () => { $('#log').innerHTML = ''; };
+
+// ---------- settings persistence ----------
+const PERSIST = ['#sSpeed', '#sEnergy', '#sEnergyBytes', '#sMode', '#sThreshold', '#sBitOrder', '#sFeedAfter', '#sFeedSpeed', '#sBlank', '#sLattice', '#sDelay', '#sWrite', '#sChunk', '#sResume', '#sCancelFeed', '#longLines', '#customText', '#cFont', '#cSize', '#cBold', '#cAlign', '#nLines', '#optAll', '#optCompat'];
+try {
+  const saved = JSON.parse(localStorage.getItem('ble-probe-settings') || '{}');
+  for (const id of PERSIST) if (id in saved) { const el = $(id); if (el.type === 'checkbox') el.checked = saved[id]; else el.value = saved[id]; }
+} catch {}
+document.addEventListener('change', () => {
+  try { localStorage.setItem('ble-probe-settings', JSON.stringify(Object.fromEntries(PERSIST.map(id => { const el = $(id); return [id, el.type === 'checkbox' ? el.checked : el.value]; })))); } catch {}
+});
+
+// ---------- wire up ----------
+$('#btnConnect').onclick = connect;
+$('#btnDisconnect').onclick = disconnect;
+$('#btnCancel').onclick = () => { if (job) { job.cancel = true; log('WARN', 'Cancel requested'); } };
+document.querySelectorAll('[data-print]').forEach(b => b.addEventListener('click', () => printJob(b.dataset.print)));
+document.querySelectorAll('[data-cmd]').forEach(b => b.addEventListener('click', () => command(b.dataset.cmd)));
+window.addEventListener('pagehide', () => { try { session.notes = $('#notes').value; navigator.sendBeacon('/api/log?session=' + encodeURIComponent(session.id), new Blob([JSON.stringify(session)], { type: 'application/json' })); } catch {} });
+
+// ---------- environment ----------
+(async () => {
+  session.env = { userAgent: navigator.userAgent, secureContext: window.isSecureContext, origin: location.origin, hasBluetooth: !!navigator.bluetooth, screen: `${screen.width}x${screen.height}@${devicePixelRatio}` };
+  try { session.env.bluetoothAvailable = await navigator.bluetooth?.getAvailability(); } catch (e) { session.env.bluetoothAvailable = 'error: ' + e.message; }
+  try { const h = await navigator.userAgentData?.getHighEntropyValues(['platformVersion', 'fullVersionList']); if (h) session.env.uaData = { platform: h.platform, platformVersion: h.platformVersion, browsers: h.fullVersionList?.map(b => b.brand + ' ' + b.version) }; } catch {}
+  session.env.watchAdvertisements = typeof BluetoothDevice !== 'undefined' && 'watchAdvertisements' in BluetoothDevice.prototype;
+  log('INFO', `Probe ready. secure=${session.env.secureContext} bluetooth=${session.env.hasBluetooth} adapter=${session.env.bluetoothAvailable} session=${session.id}`);
+  if (!session.env.secureContext || !session.env.hasBluetooth) log('ERR', 'Web Bluetooth unavailable here. Open it with "start.bat probe" or http://127.0.0.1:8384/probe/ in Chrome.');
+  showPreview(lastRows = canvasToRows(buildJob('receipt')));
+})();
+</script>
+</body>
+</html>
