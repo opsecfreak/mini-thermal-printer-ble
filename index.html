@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Receipt Printer</title>
+<link rel="stylesheet" href="app/style.css">
+</head>
+<body>
+<header class="top">
+  <h1 id="appName">Receipt Printer</h1>
+  <div class="pills" aria-live="polite">
+    <span id="pConn" class="pill">Not connected</span>
+    <span id="pStatus" class="pill" hidden></span>
+    <span id="pBattery" class="pill" hidden></span>
+    <span id="pTemp" class="pill" hidden></span>
+  </div>
+  <div class="top-actions">
+    <button id="btnConnect" class="primary" type="button">Connect printer</button>
+    <button id="btnDisconnect" type="button" hidden>Disconnect</button>
+    <button id="btnTheme" type="button">Theme: auto</button>
+  </div>
+</header>
+
+<main class="grid">
+  <section class="card" aria-labelledby="hCompose">
+    <h2 id="hCompose">Compose</h2>
+    <label class="field">Preset <select id="preset"></select></label>
+    <div class="row">
+      <button id="btnSavePreset" type="button">Save as my preset</button>
+      <button id="btnDeletePreset" type="button" hidden>Delete my preset</button>
+      <button id="btnClear" type="button">Clear</button>
+    </div>
+    <div class="seg" id="typeSeg" aria-label="Print type"></div>
+    <label class="field">Order / info line <input id="fOrder" placeholder="Order #1234 · customer · device" autocomplete="off"></label>
+    <label class="field">Title <input id="fTitle" autocomplete="off"></label>
+
+    <div id="receiptBox">
+      <table class="items">
+        <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th></th></tr></thead>
+        <tbody id="items"></tbody>
+      </table>
+      <div class="row"><button id="btnAddItem" type="button">+ Add item</button></div>
+      <div class="row">
+        <label>Tax % <input id="fTax" type="number" step="0.01" min="0"></label>
+        <label>Payment
+          <select id="fPayment">
+            <option value="">(not shown)</option>
+            <option>Cash</option><option>Card</option><option>Check</option><option>Online</option>
+            <option>Unpaid - due at pickup</option>
+          </select>
+        </label>
+      </div>
+      <div id="totals" class="totals"></div>
+    </div>
+
+    <label class="field"><span id="bodyLabel">Text</span><textarea id="fBody" rows="9" spellcheck="true"></textarea></label>
+    <p class="hint" id="bodyHint"></p>
+    <label class="check"><input type="checkbox" id="fFooter"> Show footer</label>
+  </section>
+
+  <section class="card" aria-labelledby="hPreview">
+    <h2 id="hPreview">Preview <span class="hint" id="previewInfo"></span></h2>
+    <div class="row">
+      <label>Zoom <select id="zoom"><option value="fit">Fit</option><option value="1">1:1 (actual dots)</option><option value="2">2x</option></select></label>
+      <span class="hint">Exactly what the printer receives: 384 dots wide, black and white.</span>
+    </div>
+    <div class="paper-wrap"><canvas id="preview" width="384" height="1"></canvas></div>
+  </section>
+
+  <section class="card print-card" aria-labelledby="hPrint">
+    <h2 id="hPrint">Print</h2>
+    <button id="btnPrint" class="primary big" type="button" disabled>Print</button>
+    <div class="row">
+      <label>Copies <input id="copies" type="number" min="1" max="20"></label>
+      <button id="btnCancel" class="danger" type="button" disabled>Cancel</button>
+    </div>
+    <progress id="prog" max="1" value="0"></progress>
+    <p id="progText" class="hint" aria-live="polite">Connect the printer to print.</p>
+
+    <label class="field">Darkness <span id="energyVal" class="hint"></span>
+      <input type="range" id="energy" min="8000" max="48000" step="1000">
+    </label>
+    <div class="range-labels"><span>Lighter</span><span>Darker</span></div>
+    <label class="field">Feed after print (lines, 8 lines = 1 mm) <input type="number" id="feedAfter" min="0" max="500"></label>
+
+    <h3>Paper</h3>
+    <div class="row">
+      <input type="number" id="paperLines" min="1" max="1000" aria-label="Lines"> lines
+      <button id="btnFeed" class="needs-printer" type="button" disabled>Feed</button>
+      <button id="btnRetract" class="needs-printer" type="button" disabled>Retract</button>
+    </div>
+
+    <details>
+      <summary>Shop settings</summary>
+      <label class="field">Name on top <input id="bName"></label>
+      <label class="field">Second line (optional: phone, website) <input id="bTagline"></label>
+      <label class="field">Footer <textarea id="bFooter" rows="2"></textarea></label>
+      <div class="row">
+        <label>Currency <input id="bCurrency" style="width:50px"></label>
+        <label>Text size <input id="bSize" type="number" min="12" max="40"></label>
+      </div>
+      <label class="field">Font
+        <select id="bFont">
+          <option value="sans-serif">Sans (default)</option>
+          <option value="Arial">Arial</option>
+          <option value="Segoe UI">Segoe UI</option>
+          <option value="monospace">Monospace</option>
+          <option value="Consolas">Consolas</option>
+          <option value="serif">Serif</option>
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" id="bHeader"> Show name on top</label>
+      <label class="check"><input type="checkbox" id="bDate"> Show date and time</label>
+    </details>
+
+    <details>
+      <summary>Calibration (optional)</summary>
+      <p class="hint">Not needed if prints already look right. Each test prints a short strip.</p>
+      <div class="row">
+        <button data-cal="alignment" class="needs-printer" type="button" disabled>Alignment &amp; edges</button>
+        <button data-cal="density" class="needs-printer" type="button" disabled>Darkness ladder</button>
+      </div>
+      <div class="row">
+        <button data-cal="sizes" class="needs-printer" type="button" disabled>Text sizes</button>
+        <button data-cal="tear" class="needs-printer" type="button" disabled>Tear-off test</button>
+      </div>
+      <div class="row"><button data-cal="all" class="needs-printer" type="button" disabled>Run all four</button></div>
+      <div id="densityPick" class="hint"></div>
+      <p class="hint">Text sizes: pick the smallest size you can read, then set Text size in Shop settings.
+        Tear-off: if the last line tears away, raise Feed after print.</p>
+    </details>
+
+    <details>
+      <summary>Advanced</summary>
+      <p class="hint">Defaults are tuned for the MX10. Change only when troubleshooting.</p>
+      <div class="row">
+        <label>Speed <input id="sSpeed" type="number" min="1" max="255"></label>
+        <label>Delay per line (ms) <input id="sDelay" type="number" min="0" max="100"></label>
+      </div>
+      <div class="row"><label>Black threshold <input id="sThreshold" type="number" min="40" max="230"></label></div>
+      <label class="check"><input type="checkbox" id="sPoll"> Check printer status every 15 s</label>
+      <div class="row"><button id="btnResetSettings" type="button">Reset settings</button></div>
+    </details>
+  </section>
+
+  <section class="card wide">
+    <details id="logBox">
+      <summary>Log (TX/RX)</summary>
+      <div class="row">
+        <button id="btnLogCopy" type="button">Copy</button>
+        <button id="btnLogDownload" type="button">Download</button>
+        <button id="btnLogClear" type="button">Clear view</button>
+        <label class="check"><input type="checkbox" id="logVerbose"> Show every line packet</label>
+        <span id="saveState" class="hint"></span>
+      </div>
+      <div id="log" role="log"></div>
+    </details>
+  </section>
+</main>
+
+<script type="module" src="app/app.js"></script>
+</body>
+</html>
