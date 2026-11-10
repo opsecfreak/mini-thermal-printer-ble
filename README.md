@@ -31,3 +31,40 @@ Other "cat printer" models using the same `51 78` protocol may work, but they ar
 ## Usage
 
 1. Clone the repo:
+   ```
+   git clone https://github.com/opsecfreak/mini-thermal-printer-ble.git
+   cd mini-thermal-printer-ble
+   ```
+2. Start the local server: `<start command>`
+3. Open `http://localhost:<port>` in Chrome.
+4. Turn on the printer, click **Connect**, and select it from the list.
+5. Load text or an image, adjust the settings, check the preview, and click **Print**.
+
+## How it works
+
+Each image is converted to 1-bit black and white, one 384-pixel row at a time. Each row is wrapped in a command packet:
+
+```
+51 78 | CMD | 00 | LEN (2 bytes, LE) | DATA | CRC8 | FF
+```
+
+The packets are written to the printer's GATT characteristic over BLE. The printer reports status, busy, and buffer-full states back through notifications.
+
+## Troubleshooting
+
+| Problem | Fix |
+|---------|-----|
+| Printer not in the device list | Check the Bluetooth adapter, close the Fun Print app on your phone, power-cycle the printer |
+| Faint print | Raise the density |
+| Smearing or slow feed | Lower the speed or the density |
+| Print stops mid-job | Check the paper roll; reconnect and retry |
+
+## Credits
+
+- [opuu/cat-printer](https://github.com/opuu/cat-printer): original Web Bluetooth SDK this project is built on
+- [werwolv: Reverse engineering a cat printer](https://werwolv.net/blog/cat_printer): protocol and CRC8 write-up
+- [NaitLee/Cat-Printer](https://github.com/NaitLee/Cat-Printer): protocol reference
+
+## License
+
+AGPL-3.0, same as the original. See [LICENSE](LICENSE).
