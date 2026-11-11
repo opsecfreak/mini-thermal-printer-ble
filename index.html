@@ -23,40 +23,183 @@
 </header>
 
 <main class="grid">
-  <section class="card" aria-labelledby="hCompose">
-    <h2 id="hCompose">Compose</h2>
-    <label class="field">Preset <select id="preset"></select></label>
-    <div class="row">
-      <button id="btnSavePreset" type="button">Save as my preset</button>
-      <button id="btnDeletePreset" type="button" hidden>Delete my preset</button>
-      <button id="btnClear" type="button">Clear</button>
+  <section class="card compose">
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" data-tab="compose" aria-selected="true">Compose</button>
+      <button type="button" role="tab" data-tab="heading" aria-selected="false">Heading, logo &amp; footer</button>
     </div>
-    <div class="seg" id="typeSeg" aria-label="Print type"></div>
-    <label class="field">Order / info line <input id="fOrder" placeholder="Order #1234 · customer · device" autocomplete="off"></label>
-    <label class="field">Title <input id="fTitle" autocomplete="off"></label>
 
-    <div id="receiptBox">
-      <table class="items">
-        <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th></th></tr></thead>
-        <tbody id="items"></tbody>
-      </table>
-      <div class="row"><button id="btnAddItem" type="button">+ Add item</button></div>
-      <div class="row">
-        <label>Tax % <input id="fTax" type="number" step="0.01" min="0"></label>
-        <label>Payment
-          <select id="fPayment">
-            <option value="">(not shown)</option>
-            <option>Cash</option><option>Card</option><option>Check</option><option>Online</option>
-            <option>Unpaid - due at pickup</option>
-          </select>
-        </label>
+    <!-- ===================== COMPOSE ===================== -->
+    <div class="tabpanel" id="tab-compose">
+      <div class="presetbar">
+        <label class="field">Category <select id="pCat"></select></label>
+        <label class="field">Group <select id="pGroup"></select></label>
+        <label class="field">Preset <select id="pName"></select></label>
       </div>
-      <div id="totals" class="totals"></div>
+      <div class="row">
+        <input id="pSearch" list="presetList" placeholder="Search all presets (lipo, bin, sticky, fragile…)" autocomplete="off" class="grow">
+        <datalist id="presetList"></datalist>
+      </div>
+      <div class="row">
+        <button id="btnSavePreset" type="button">Save as my preset</button>
+        <button id="btnDeletePreset" type="button" hidden>Delete my preset</button>
+        <button id="btnClear" type="button">New blank</button>
+      </div>
+
+      <div class="seg" id="typeSeg" aria-label="Print type"></div>
+
+      <details id="custBox" class="sub" open>
+        <summary>Customer &amp; order <span class="hint" id="custSummary"></span></summary>
+        <div class="grid2">
+          <label class="field">Order # <input id="cOrder" placeholder="4838" autocomplete="off"></label>
+          <label class="field">Customer <input id="cName" placeholder="Name" autocomplete="off"></label>
+          <label class="field">Phone <input id="cPhone" type="tel" autocomplete="off"></label>
+          <label class="field">Email <input id="cEmail" type="email" autocomplete="off"></label>
+          <label class="field">Device / model <input id="cDevice" placeholder="Model or serial" autocomplete="off" list="deviceList"></label>
+          <label class="field">Extra info line <input id="fOrder" placeholder="Optional (city, ship method…)" autocomplete="off"></label>
+        </div>
+        <datalist id="deviceList"></datalist>
+        <div class="row"><button id="btnNewCustomer" type="button">Clear customer</button><span class="hint">Kept when you switch presets. Empty fields don't print.</span></div>
+      </details>
+
+      <label class="field">Title <input id="fTitle" autocomplete="off"></label>
+
+      <div id="receiptBox">
+        <div class="quickadd">
+          <span class="lbl">Quick add</span>
+          <select id="qaCat" aria-label="Item category"></select>
+          <select id="qaItem" aria-label="Item"></select>
+        </div>
+        <table class="items">
+          <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th class="num">Total</th><th></th></tr></thead>
+          <tbody id="items"></tbody>
+        </table>
+        <datalist id="itemList"></datalist>
+        <div class="row"><button id="btnAddItem" type="button">+ Add line</button><span class="hint">Prices you type are remembered for next time.</span></div>
+        <div class="row">
+          <label>Tax % <input id="fTax" type="number" step="0.001" min="0"></label>
+          <label>Discount $ <input id="fDiscount" type="number" step="0.01" min="0"></label>
+          <label>Payment
+            <select id="fPayment">
+              <option value="">(not shown)</option>
+              <option>Cash</option><option>Card</option><option>Check</option><option>Online</option>
+              <option>PayPal</option><option>Venmo</option><option>Zelle</option>
+              <option>Unpaid - due at pickup</option>
+            </select>
+          </label>
+        </div>
+        <div id="totals" class="totals"></div>
+      </div>
+
+      <div class="field">
+        <span id="bodyLabel">Text</span>
+        <div class="toolbar" id="fmtBar" aria-label="Formatting"></div>
+        <div class="row tight">
+          <select id="snippet" aria-label="Insert a ready-made note" class="grow"></select>
+        </div>
+        <textarea id="fBody" rows="9" spellcheck="true"></textarea>
+        <p class="hint" id="bodyHint"></p>
+        <details class="sub"><summary>Formatting examples</summary><table class="help" id="fmtHelp"></table></details>
+      </div>
+
+      <fieldset class="layout">
+        <legend>Layout</legend>
+        <div class="grid2">
+          <label class="field">Size
+            <select id="lSize">
+              <option value="auto">Auto length (receipt)</option>
+              <option value="1">1 in label</option>
+              <option value="1.5">1.5 in label</option>
+              <option value="2">2 in (sticky note square)</option>
+              <option value="3">3 in label</option>
+              <option value="4">4 in label</option>
+            </select>
+          </label>
+          <label class="field">Cut frame
+            <select id="lFrame">
+              <option value="none">None</option>
+              <option value="cut">Dashed cut line</option>
+              <option value="box">Solid box</option>
+              <option value="round">Rounded box</option>
+            </select>
+          </label>
+          <label class="field">Text size
+            <select id="lText">
+              <option value="S">Small</option><option value="M">Medium</option><option value="L">Large</option><option value="XL">Extra large</option>
+            </select>
+          </label>
+          <label class="field">Heading
+            <select id="lHeader">
+              <option value="full">Full heading (logo, name, lines)</option>
+              <option value="name">Name only (small)</option>
+              <option value="bar">Name on black bar</option>
+              <option value="none">No heading</option>
+            </select>
+          </label>
+        </div>
+        <label class="check"><input type="checkbox" id="lDate"> Date</label>
+        <label class="check"><input type="checkbox" id="lTime"> Time</label>
+        <label class="check"><input type="checkbox" id="lCust"> Customer info</label>
+        <label class="check"><input type="checkbox" id="fFooter"> Footer</label>
+      </fieldset>
     </div>
 
-    <label class="field"><span id="bodyLabel">Text</span><textarea id="fBody" rows="9" spellcheck="true"></textarea></label>
-    <p class="hint" id="bodyHint"></p>
-    <label class="check"><input type="checkbox" id="fFooter"> Show footer</label>
+    <!-- ===================== HEADING ===================== -->
+    <div class="tabpanel" id="tab-heading" hidden>
+      <p class="hint">Used by every print set to "Full heading". The preview on the right updates as you change it.</p>
+      <label class="field">Heading preset <select id="hPreset"></select></label>
+      <div class="row">
+        <button id="btnSaveHeading" type="button">Save as my heading</button>
+        <button id="btnDeleteHeading" type="button" hidden>Delete my heading</button>
+      </div>
+      <label class="field">Style <select id="hStyle"></select></label>
+      <label class="field">Shop name <input id="bName" autocomplete="off"></label>
+      <label class="field">Name size <span class="hint" id="hScaleVal"></span><input type="range" id="hScale" min="1" max="3" step="0.1"></label>
+      <label class="field">Line under the name (optional) <input id="bTagline" placeholder="Drone & Device Repair" autocomplete="off"></label>
+      <label class="field">Extra lines (optional: phone, web, address) <textarea id="bInfo" rows="3"></textarea></label>
+
+      <h3>Logo</h3>
+      <div class="row">
+        <label class="filebtn">Upload logo (PNG, JPG, SVG)<input type="file" id="logoFile" accept="image/*"></label>
+        <button id="btnLogoRemove" type="button">Remove logo</button>
+        <label class="check"><input type="checkbox" id="lgShow"> Show logo</label>
+      </div>
+      <div id="logoTools">
+        <div class="logo-wrap"><canvas id="logoPreview" width="1" height="1"></canvas><span class="hint" id="logoInfo"></span></div>
+        <label class="field">Width <span class="hint" id="lgWidthVal"></span><input type="range" id="lgWidth" min="48" max="384" step="8"></label>
+        <label class="field">Black cut-off <span class="hint" id="lgThreshVal"></span><input type="range" id="lgThresh" min="20" max="240" step="1"></label>
+        <div class="row">
+          <button id="btnLogoAuto" type="button">Auto cut-off</button>
+          <label>Mode
+            <select id="lgMode">
+              <option value="sharp">Sharp (logos, text)</option>
+              <option value="dither">Dotted shading (photos, gradients)</option>
+            </select>
+          </label>
+          <label class="check"><input type="checkbox" id="lgInvert"> Invert</label>
+        </div>
+        <p class="hint">The printer only prints black dots, so the logo is converted to pure black and white. Move "Black cut-off" until it looks right.</p>
+      </div>
+
+      <h3>Footer &amp; text</h3>
+      <label class="field">Footer (bottom of receipts and notes) <textarea id="bFooter" rows="2"></textarea></label>
+      <div class="row">
+        <label>Currency <input id="bCurrency" style="width:50px"></label>
+        <label>Base text size <input id="bSize" type="number" min="12" max="40"></label>
+      </div>
+      <label class="field">Font
+        <select id="bFont">
+          <option value="sans-serif">Sans (default)</option>
+          <option value="Arial">Arial</option>
+          <option value="Segoe UI">Segoe UI</option>
+          <option value="Arial Black">Arial Black</option>
+          <option value="Impact">Impact</option>
+          <option value="monospace">Monospace</option>
+          <option value="Consolas">Consolas</option>
+          <option value="serif">Serif</option>
+        </select>
+      </label>
+    </div>
   </section>
 
   <section class="card" aria-labelledby="hPreview">
@@ -92,29 +235,6 @@
     </div>
 
     <details>
-      <summary>Shop settings</summary>
-      <label class="field">Name on top <input id="bName"></label>
-      <label class="field">Second line (optional: phone, website) <input id="bTagline"></label>
-      <label class="field">Footer <textarea id="bFooter" rows="2"></textarea></label>
-      <div class="row">
-        <label>Currency <input id="bCurrency" style="width:50px"></label>
-        <label>Text size <input id="bSize" type="number" min="12" max="40"></label>
-      </div>
-      <label class="field">Font
-        <select id="bFont">
-          <option value="sans-serif">Sans (default)</option>
-          <option value="Arial">Arial</option>
-          <option value="Segoe UI">Segoe UI</option>
-          <option value="monospace">Monospace</option>
-          <option value="Consolas">Consolas</option>
-          <option value="serif">Serif</option>
-        </select>
-      </label>
-      <label class="check"><input type="checkbox" id="bHeader"> Show name on top</label>
-      <label class="check"><input type="checkbox" id="bDate"> Show date and time</label>
-    </details>
-
-    <details>
       <summary>Calibration (optional)</summary>
       <p class="hint">Not needed if prints already look right. Each test prints a short strip.</p>
       <div class="row">
@@ -127,7 +247,7 @@
       </div>
       <div class="row"><button data-cal="all" class="needs-printer" type="button" disabled>Run all four</button></div>
       <div id="densityPick" class="hint"></div>
-      <p class="hint">Text sizes: pick the smallest size you can read, then set Text size in Shop settings.
+      <p class="hint">Text sizes: pick the smallest size you can read, then set Base text size in the Heading tab.
         Tear-off: if the last line tears away, raise Feed after print.</p>
     </details>
 
@@ -140,7 +260,10 @@
       </div>
       <div class="row"><label>Black threshold <input id="sThreshold" type="number" min="40" max="230"></label></div>
       <label class="check"><input type="checkbox" id="sPoll"> Check printer status every 15 s</label>
-      <div class="row"><button id="btnResetSettings" type="button">Reset settings</button></div>
+      <div class="row">
+        <button id="btnResetSettings" type="button">Reset printer settings</button>
+        <button id="btnForgetItems" type="button">Forget remembered item prices</button>
+      </div>
     </details>
   </section>
 
